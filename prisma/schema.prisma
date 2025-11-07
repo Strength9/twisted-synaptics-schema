@@ -225,6 +225,27 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model UserActivityLog {
+  id           String    @id @default(uuid())
+  userId       String
+  action       String
+  resource     String?
+  resourceType String?   @map("resource_type")
+  resourceId   String?   @map("resource_id")
+  details      Json?
+  ipAddress    String?   @map("ip_address")
+  userAgent    String?   @map("user_agent")
+  email        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([email])
+  @@index([resourceId])
+  @@map("user_activity_logs")
+}
+
 model UploadLog {
   id          String   @id @default(uuid())
   filename    String
