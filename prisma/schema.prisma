@@ -1,0 +1,536 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// TENANT USER MODELS (Frontend - tenant-specific users)
+// ============================================================================
+
+model TenantUser {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  emailVerified    Boolean   @default(false)
+  name             String?
+  image            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  sessions         TenantSession[]
+  accounts         TenantAccount[]
+  verifications    TenantVerification[]
+
+  @@map("tenant_users")
+}
+
+model TenantSession {
+  id        String    @id @default(uuid())
+  userId    String
+  expiresAt DateTime
+  token     String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      TenantUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_sessions")
+}
+
+model TenantAccount {
+  id                   String    @id @default(uuid())
+  userId               String
+  accountId            String
+  providerId           String
+  password             String?
+  accessToken          String?
+  refreshToken         String?
+  idToken              String?
+  expiresAt            DateTime?
+  accessTokenExpiresAt DateTime?
+  scope                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 TenantUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@map("tenant_accounts")
+}
+
+model TenantVerification {
+  id         String   @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       TenantUser @relation(fields: [identifier], references: [id], onDelete: Cascade)
+
+  @@unique([identifier, value])
+  @@map("tenant_verifications")
+}
+
+// ============================================================================
+// ADMIN USER MODELS (Admin - admin-specific users and management)
+// ============================================================================
+
+model AdminUser {
+  id                   String                   @id @default(uuid())
+  email                String                   @unique
+  emailVerified        Boolean                  @default(false)
+  name                 String?
+  image                String?
+  role                 String                   @default("admin")
+  restricted           Boolean                  @default(false)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  tenantId             String?                  @map("tenant_id")
+  avatar               String?
+  colorLight           String?                  @unique(map: "admin_users_color_light_unique") @map("color_light") @db.VarChar(7)
+  colorDark            String?                  @unique(map: "admin_users_color_dark_unique") @map("color_dark") @db.VarChar(7)
+  displayOrder         Int?                     @map("display_order")
+  timezone             String?                  @default("UTC")
+  accounts             Account[]
+  sentInvites          AdminInvite[]
+  tenant               Tenant?                  @relation(fields: [tenantId], references: [id])
+  auditLogs            AuditLog[]
+  sessions             Session[]
+  dashboardPreferences UserDashboardPreference?
+  userTenants          UserTenant[]
+
+  @@index([tenantId])
+  @@index([role])
+  @@index([colorLight])
+  @@index([colorDark])
+  @@map("admin_users")
+}
+
+model AdminInvite {
+  id        String    @id @default(uuid())
+  email     String
+  token     String    @unique
+  role      String    @default("admin")
+  invitedBy String
+  expiresAt DateTime
+  used      Boolean   @default(false)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  tenantId  String?   @map("tenant_id")
+  inviter   AdminUser @relation(fields: [invitedBy], references: [id])
+
+  @@index([email])
+  @@index([token])
+  @@index([tenantId])
+  @@map("admin_invites")
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid())
+  email     String
+  token     String    @unique
+  expiresAt DateTime
+  used      Boolean   @default(false)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([email])
+  @@index([token])
+  @@map("password_resets")
+}
+
+model EmailVerification {
+  id        String    @id @default(uuid())
+  email     String
+  token     String    @unique
+  expiresAt DateTime
+  used      Boolean   @default(false)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([email])
+  @@index([token])
+  @@map("email_verifications")
+}
+
+model Session {
+  id        String    @id @default(uuid())
+  userId    String
+  expiresAt DateTime
+  token     String    @unique
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Account {
+  id                   String    @id @default(uuid())
+  userId               String
+  accountId            String
+  providerId           String
+  password             String?
+  accessToken          String?
+  refreshToken         String?
+  idToken              String?
+  expiresAt            DateTime?
+  accessTokenExpiresAt DateTime?
+  scope                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@map("accounts")
+}
+
+model Verification {
+  id         String   @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([identifier, value])
+  @@map("verifications")
+}
+
+model AuditLog {
+  id           String     @id @default(uuid())
+  adminId      String?
+  action       String
+  resource     String?
+  details      Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime   @default(now())
+  tenantId     String?    @map("tenant_id")
+  resourceType String?    @map("resource_type")
+  resourceId   String?    @map("resource_id")
+  userRole     String?    @map("user_role")
+  admin        AdminUser? @relation(fields: [adminId], references: [id])
+  tenant       Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([resourceId])
+  @@index([tenantId])
+  @@map("audit_logs")
+}
+
+model UploadLog {
+  id          String   @id @default(uuid())
+  filename    String
+  folderPath  String
+  fileType    String
+  fileSize    BigInt
+  blobUrl     String
+  adminUserId String
+  uploadedAt  DateTime @default(now())
+  category    String?
+  tags        String[]
+
+  @@index([adminUserId])
+  @@index([folderPath])
+  @@index([uploadedAt])
+  @@index([category])
+  @@map("upload_log")
+}
+
+model WidgetRolePermission {
+  id        String   @id @default(uuid())
+  widgetId  String   @unique
+  roles     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([widgetId])
+  @@map("widget_role_permissions")
+}
+
+model UserDashboardPreference {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  preferences Json
+  updatedAt   DateTime  @updatedAt
+  user        AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_dashboard_preferences")
+}
+
+// ============================================================================
+// TENANT MODELS (Multi-tenant configuration and management)
+// ============================================================================
+
+model Tenant {
+  id                         String           @id @default(uuid())
+  name                       String
+  tenantCode                 String           @unique
+  url                        String           @unique
+  longName                   String
+  shortName                  String
+  primaryColor               String?
+  secondaryColor             String?
+  backgroundColor            String?
+  fontColor                  String?
+  fontFamily                 String?
+  favicon                    String?
+  logoMain                   String?
+  logoSmall                  String?
+  logoDark                   String?
+  logoLight                  String?
+  prizeIcons                 Json?
+  socialMedia                Json?
+  streamingPlatforms         Json?
+  streamers                  Json?
+  jsonFileUrl                String?
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+  customCancelledMessage     String?
+  customLiveMessage          String?
+  customNextMessage          String?
+  customOfflineMessage       String?
+  customStartingSoonMessage  String?
+  gracePeriodAfterMinutes    Int?
+  gracePeriodBeforeMinutes   Int?
+  showOtherTenantsCalendars  Boolean          @default(false)
+  streamDurationWarningHours Int?
+  timezone                   String           @default("UTC")
+  colorDark                  String?          @unique
+  colorLight                 String?          @unique
+  users                      AdminUser[]
+  audit_logs                 AuditLog[]
+  manualOverrides            ManualOverride[]
+  schedules                  StreamSchedule[]
+  userTenants                UserTenant[]
+
+  @@index([name])
+  @@index([tenantCode])
+  @@index([url])
+  @@map("tenants")
+}
+
+model UserTenant {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tenantId  String    @map("tenant_id")
+  createdAt DateTime  @default(now())
+  createdBy String?   @map("created_by")
+  isActive  Boolean   @default(true) @map("is_active")
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([userId])
+  @@index([tenantId])
+  @@index([isActive])
+  @@map("user_tenants")
+}
+
+model RolePermission {
+  id          String   @id @default(uuid())
+  role        String
+  permission  String
+  isAllowed   Boolean  @default(false) @map("is_allowed")
+  description String?
+  category    String?
+  modifiedBy  String?  @map("modified_by")
+  modifiedAt  DateTime @updatedAt @map("modified_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([role, permission])
+  @@index([role])
+  @@index([permission])
+  @@map("role_permissions")
+}
+
+model GlobalSettings {
+  id                         String   @id @default(uuid())
+  defaultLiveMessage         String   @default("🔴 LIVE NOW with {streamer}!")
+  defaultNextMessage         String   @default("Next stream: {time} with {streamer}")
+  defaultOfflineMessage      String   @default("No streams scheduled at this time")
+  defaultCancelledMessage    String   @default("Stream cancelled: {reason}")
+  defaultStartingSoonMessage String   @default("🎬 Starting soon: {streamer} goes live at {time}")
+  gracePeriodBeforeMinutes   Int      @default(15)
+  gracePeriodAfterMinutes    Int      @default(30)
+  streamDurationWarningHours Int      @default(6)
+  archiveRetentionDays       Int      @default(90)
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+  defaultTimezone            String   @default("UTC") @map("default_timezone")
+
+  @@map("global_settings")
+}
+
+// ============================================================================
+// STREAMING MODELS (Stream scheduling and management)
+// ============================================================================
+
+model StreamSchedule {
+  id                        String         @id @default(uuid())
+  tenantId                  String
+  streamerName              String
+  startDateTime             DateTime
+  endDateTime               DateTime
+  isRecurring               Boolean        @default(false)
+  rruleString               String?
+  customLiveMessage         String?
+  customNextMessage         String?
+  customCancelledMessage    String?
+  customStartingSoonMessage String?
+  status                    StreamStatus   @default(SCHEDULED)
+  cancellationReason        String?
+  archivedAt                DateTime?
+  archiveExportId           String?
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+  archiveExport             ArchiveExport? @relation(fields: [archiveExportId], references: [id])
+  tenant                    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([startDateTime])
+  @@index([status])
+  @@index([archivedAt])
+  @@map("stream_schedules")
+}
+
+model ManualOverride {
+  id            String    @id @default(uuid())
+  tenantId      String
+  streamerName  String
+  customMessage String?
+  startedAt     DateTime  @default(now())
+  endsAt        DateTime
+  endedEarly    Boolean   @default(false)
+  endedAt       DateTime?
+  createdById   String?
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([startedAt])
+  @@index([endsAt])
+  @@map("manual_overrides")
+}
+
+model ArchiveExport {
+  id             String           @id @default(uuid())
+  blobUrl        String
+  recordCount    Int
+  dateRangeStart DateTime
+  dateRangeEnd   DateTime
+  fileSize       BigInt
+  createdAt      DateTime         @default(now())
+  schedules      StreamSchedule[]
+
+  @@index([createdAt])
+  @@map("archive_exports")
+}
+
+enum StreamStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+  POSTPONED
+}
+
+// ============================================================================
+// PAGE MODELS (Content management system)
+// ============================================================================
+
+model Page {
+  id                  String    @id @default(uuid())
+  title               String
+  slug                String
+  topic               String?
+  parentPageId        String?
+  blocksJson          Json      @default("[]")
+  searchableText      String?
+  order               Int       @default(0)
+  versionNumber       Int       @default(1)
+
+  // SEO Metadata
+  metaTitle           String?
+  metaDescription     String?
+  keywords            String?
+  ogTitle             String?
+  ogDescription       String?
+  ogImageUrl          String?
+  twitterCardType     String?   @default("summary")
+  twitterTitle        String?
+  twitterDescription  String?
+  twitterImageUrl     String?
+
+  // Publishing
+  status              String    @default("draft")
+  tenantAssignment    Json      @default("\"all\"")
+  publishFromDate     DateTime?
+  lastPublishedAt     DateTime?
+
+  // Auto-save tracking
+  lastAutoSaveAt      DateTime?
+  lastManualSaveAt    DateTime?
+  hasUnsavedChanges   Boolean   @default(false)
+
+  // Audit
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  parentPage          Page?         @relation("PageHierarchy", fields: [parentPageId], references: [id], onDelete: SetNull)
+  childPages          Page[]        @relation("PageHierarchy")
+  versions            PageVersion[]
+
+  @@index([slug])
+  @@index([topic])
+  @@index([status])
+  @@index([parentPageId])
+  @@index([order])
+  @@map("pages")
+}
+
+model PageVersion {
+  id               String   @id @default(uuid())
+  pageId           String
+  versionNumber    Int
+  pageData         String
+  metadataSnapshot String
+  originalSize     Int
+  createdBy        String
+  createdAt        DateTime @default(now())
+
+  page             Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, versionNumber])
+  @@index([pageId])
+  @@map("page_versions")
+}
+
+model PublishedPage {
+  id              String    @id @default(uuid())
+  pageId          String
+  tenantId        String?
+  slug            String
+  title           String
+  description     String?
+  topic           String?
+  contentUrl      String
+  hierarchyData   Json
+  publishFromDate DateTime?
+  publishedAt     DateTime  @default(now())
+  order           Int       @default(0)
+
+  @@unique([pageId, tenantId])
+  @@index([tenantId])
+  @@index([slug])
+  @@index([order])
+  @@map("published_pages")
+}
