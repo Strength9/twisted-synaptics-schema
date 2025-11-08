@@ -8,89 +8,30 @@ datasource db {
 }
 
 // ============================================================================
-// TENANT USER MODELS (Frontend - tenant-specific users)
+// UNIFIED USER MODELS (Both admin and frontend use SiteUser)
 // ============================================================================
 
-model TenantUser {
-  id               String    @id @default(uuid())
-  email            String    @unique
-  emailVerified    Boolean   @default(false)
-  name             String?
-  image            String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  sessions         TenantSession[]
-  accounts         TenantAccount[]
-  verifications    TenantVerification[]
-
-  @@map("tenant_users")
-}
-
-model TenantSession {
-  id        String    @id @default(uuid())
-  userId    String
-  expiresAt DateTime
-  token     String    @unique
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  user      TenantUser @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("tenant_sessions")
-}
-
-model TenantAccount {
-  id                   String    @id @default(uuid())
-  userId               String
-  accountId            String
-  providerId           String
-  password             String?
-  accessToken          String?
-  refreshToken         String?
-  idToken              String?
-  expiresAt            DateTime?
-  accessTokenExpiresAt DateTime?
-  scope                String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  user                 TenantUser @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([providerId, accountId])
-  @@map("tenant_accounts")
-}
-
-model TenantVerification {
-  id         String   @id @default(uuid())
-  identifier String
-  value      String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  user       TenantUser @relation(fields: [identifier], references: [id], onDelete: Cascade)
-
-  @@unique([identifier, value])
-  @@map("tenant_verifications")
-}
-
-// ============================================================================
-// ADMIN USER MODELS (Admin - admin-specific users and management)
-// ============================================================================
-
-model AdminUser {
+model SiteUser {
   id                   String                   @id @default(uuid())
   email                String                   @unique
   emailVerified        Boolean                  @default(false)
   name                 String?
   image                String?
-  role                 String                   @default("admin")
+  role                 String                   @default("user")
   restricted           Boolean                  @default(false)
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  tenantId             String?                  @map("tenant_id")
+  // Access control: determine which apps this user can access
+  canAccessAdmin       Boolean                  @default(false)  @map("can_access_admin")
+  canAccessTenant      Boolean                  @default(false)  @map("can_access_tenant")
+  // Admin-specific fields (nullable for tenant-only users)
   avatar               String?
-  colorLight           String?                  @unique(map: "admin_users_color_light_unique") @map("color_light") @db.VarChar(7)
-  colorDark            String?                  @unique(map: "admin_users_color_dark_unique") @map("color_dark") @db.VarChar(7)
+  colorLight           String?                  @unique(map: "site_users_color_light_unique") @map("color_light") @db.VarChar(7)
+  colorDark            String?                  @unique(map: "site_users_color_dark_unique") @map("color_dark") @db.VarChar(7)
   displayOrder         Int?                     @map("display_order")
   timezone             String?                  @default("UTC")
+  tenantId             String?                  @map("tenant_id")
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  // Relations
   accounts             Account[]
   sentInvites          AdminInvite[]
   tenant               Tenant?                  @relation(fields: [tenantId], references: [id])
@@ -103,7 +44,9 @@ model AdminUser {
   @@index([role])
   @@index([colorLight])
   @@index([colorDark])
-  @@map("admin_users")
+  @@index([canAccessAdmin])
+  @@index([canAccessTenant])
+  @@map("site_users")
 }
 
 model AdminInvite {
@@ -118,7 +61,7 @@ model AdminInvite {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   tenantId  String?   @map("tenant_id")
-  inviter   AdminUser @relation(fields: [invitedBy], references: [id])
+  inviter   SiteUser  @relation(fields: [invitedBy], references: [id])
 
   @@index([email])
   @@index([token])
@@ -165,7 +108,7 @@ model Session {
   userAgent String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      SiteUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
 }
@@ -184,7 +127,7 @@ model Account {
   scope                String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
-  user                 AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                 SiteUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([providerId, accountId])
   @@map("accounts")
@@ -215,7 +158,7 @@ model AuditLog {
   resourceType String?    @map("resource_type")
   resourceId   String?    @map("resource_id")
   userRole     String?    @map("user_role")
-  admin        AdminUser? @relation(fields: [adminId], references: [id])
+  admin        SiteUser?  @relation(fields: [adminId], references: [id])
   tenant       Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([action])
@@ -281,7 +224,7 @@ model UserDashboardPreference {
   userId      String    @unique
   preferences Json
   updatedAt   DateTime  @updatedAt
-  user        AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        SiteUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("user_dashboard_preferences")
@@ -327,7 +270,7 @@ model Tenant {
   timezone                   String           @default("UTC")
   colorDark                  String?          @unique
   colorLight                 String?          @unique
-  users                      AdminUser[]
+  users                      SiteUser[]
   audit_logs                 AuditLog[]
   manualOverrides            ManualOverride[]
   schedules                  StreamSchedule[]
@@ -347,7 +290,7 @@ model UserTenant {
   createdBy String?   @map("created_by")
   isActive  Boolean   @default(true) @map("is_active")
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      SiteUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, tenantId])
   @@index([userId])
