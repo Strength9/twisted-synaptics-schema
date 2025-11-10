@@ -29,23 +29,38 @@ model SiteUser {
   displayOrder         Int?                     @map("display_order")
   timezone             String?                  @default("UTC")
   tenantId             String?                  @map("tenant_id")
+  // Track where user signed up (for regular users/players)
+  signupTenantId       String?                  @map("signup_tenant_id")
+  // Suspension system (global, affects all access)
+  isSuspended          Boolean                  @default(false) @map("is_suspended")
+  suspendedAt          DateTime?                @map("suspended_at")
+  suspendedBy          String?                  @map("suspended_by")
+  suspensionReason     String?                  @map("suspension_reason")
+  // Activity tracking (for all users)
+  lastLoginAt          DateTime?                @map("last_login_at")
+  loginCount           Int                      @default(0) @map("login_count")
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
   // Relations
   accounts             Account[]
   sentInvites          AdminInvite[]
   tenant               Tenant?                  @relation(fields: [tenantId], references: [id])
+  signupTenant         Tenant?                  @relation("SignupTenant", fields: [signupTenantId], references: [id])
   auditLogs            AuditLog[]
   sessions             Session[]
   dashboardPreferences UserDashboardPreference?
   userTenants          UserTenant[]
+  userPasswordResetTokens UserPasswordResetToken[]
 
   @@index([tenantId])
+  @@index([signupTenantId])
   @@index([role])
   @@index([colorLight])
   @@index([colorDark])
   @@index([canAccessAdmin])
   @@index([canAccessTenant])
+  @@index([isSuspended])
+  @@index([lastLoginAt])
   @@map("site_users")
 }
 
@@ -111,6 +126,21 @@ model Session {
   user      SiteUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
+}
+
+model UserPasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  token     String    @unique
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      SiteUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("user_password_reset_tokens")
 }
 
 model Account {
@@ -271,6 +301,7 @@ model Tenant {
   colorDark                  String?          @unique
   colorLight                 String?          @unique
   users                      SiteUser[]
+  signupUsers                SiteUser[]       @relation("SignupTenant")
   audit_logs                 AuditLog[]
   manualOverrides            ManualOverride[]
   schedules                  StreamSchedule[]
