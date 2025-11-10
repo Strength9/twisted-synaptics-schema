@@ -51,6 +51,11 @@ model SiteUser {
   dashboardPreferences UserDashboardPreference?
   userTenants          UserTenant[]
   userPasswordResetTokens UserPasswordResetToken[]
+  // Scheduled tasks relations (who created/updated/deleted tasks)
+  scheduledTasksCreated ScheduledTask[]         @relation("ScheduledTaskCreatedBy")
+  scheduledTasksUpdated ScheduledTask[]         @relation("ScheduledTaskUpdatedBy")
+  scheduledTasksDeleted ScheduledTask[]         @relation("ScheduledTaskDeletedBy")
+  scheduledTaskLogs     ScheduledTaskLog[]      @relation("ScheduledTaskLogTriggeredBy")
 
   @@index([tenantId])
   @@index([signupTenantId])
@@ -178,11 +183,13 @@ model Verification {
 model AuditLog {
   id           String     @id @default(uuid())
   adminId      String?
+  userId       String?    @map("user_id")
+  email        String?
   action       String
   resource     String?
   details      Json?
-  ipAddress    String?
-  userAgent    String?
+  ipAddress    String?    @map("ip_address")
+  userAgent    String?    @map("user_agent")
   createdAt    DateTime   @default(now())
   tenantId     String?    @map("tenant_id")
   resourceType String?    @map("resource_type")
@@ -195,6 +202,9 @@ model AuditLog {
   @@index([createdAt])
   @@index([resourceId])
   @@index([tenantId])
+  @@index([userId])
+  @@index([email])
+  @@index([userRole])
   @@map("audit_logs")
 }
 
@@ -217,6 +227,104 @@ model UserActivityLog {
   @@index([email])
   @@index([resourceId])
   @@map("user_activity_logs")
+}
+
+model UserActivityArchive {
+  id           String    @id @default(uuid())
+  userId       String
+  action       String
+  resource     String?
+  resourceType String?   @map("resource_type")
+  resourceId   String?   @map("resource_id")
+  details      Json?
+  ipAddress    String?   @map("ip_address")
+  userAgent    String?   @map("user_agent")
+  email        String?
+  // Archive metadata
+  originalLogId String?   @map("original_log_id")
+  archivedAt    DateTime  @default(now()) @map("archived_at")
+  // Original creation date (preserved from log)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  // Flag for anonymization (GDPR right to be forgotten)
+  isAnonymized Boolean   @default(false) @map("is_anonymized")
+  anonymizedAt DateTime? @map("anonymized_at")
+
+  @@index([userId])
+  @@index([email])
+  @@index([action])
+  @@index([createdAt])
+  @@index([archivedAt])
+  @@index([isAnonymized])
+  @@index([originalLogId])
+  @@map("user_activity_archive")
+}
+
+// ============================================================================
+// ROLE-BASED ACTIVITY LOG ARCHIVES (Stage 1: Hot → Warm Storage)
+// ============================================================================
+
+model PlayerActivityArchive {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  email         String?
+  action        String
+  resource      String?
+  resourceType  String?   @map("resource_type")
+  resourceId    String?   @map("resource_id")
+  details       Json?
+  ipAddress     String?   @map("ip_address")
+  userAgent     String?   @map("user_agent")
+
+  // Archive metadata
+  originalLogId String?   @map("original_log_id")
+  archivedAt    DateTime  @default(now()) @map("archived_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // GDPR compliance
+  isAnonymized  Boolean   @default(false) @map("is_anonymized")
+  anonymizedAt  DateTime? @map("anonymized_at")
+
+  @@index([userId])
+  @@index([email])
+  @@index([action])
+  @@index([createdAt])
+  @@index([archivedAt])
+  @@index([isAnonymized])
+  @@map("player_activity_archive")
+}
+
+model AdminActivityArchive {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  email         String?
+  action        String
+  resource      String?
+  resourceType  String?   @map("resource_type")
+  resourceId    String?   @map("resource_id")
+  details       Json?
+  ipAddress     String?   @map("ip_address")
+  userAgent     String?   @map("user_agent")
+  userRole      String?   @map("user_role")
+  tenantId      String?   @map("tenant_id")
+
+  // Archive metadata
+  originalLogId String?   @map("original_log_id")
+  archivedAt    DateTime  @default(now()) @map("archived_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // GDPR compliance
+  isAnonymized  Boolean   @default(false) @map("is_anonymized")
+  anonymizedAt  DateTime? @map("anonymized_at")
+
+  @@index([userId])
+  @@index([email])
+  @@index([action])
+  @@index([createdAt])
+  @@index([archivedAt])
+  @@index([isAnonymized])
+  @@index([userRole])
+  @@index([tenantId])
+  @@map("admin_activity_archive")
 }
 
 model UploadLog {
@@ -528,4 +636,123 @@ model PublishedPage {
   @@index([slug])
   @@index([order])
   @@map("published_pages")
+}
+
+// ============================================================================
+// SCHEDULED TASKS (Background job management)
+// ============================================================================
+
+model ScheduledTask {
+  id                String                 @id @default(uuid())
+
+  // Handler reference
+  taskKey           String                 @unique
+  label             String
+  description       String?
+
+  // Schedule configuration
+  scheduleType      ScheduleType
+  scheduleConfig    Json                   // { type: 'interval', seconds: 86400 } or { type: 'cron', expression: '0 2 * * *' } or { type: 'once', runAt: 'ISO8601' }
+  taskPayload       Json                   // Validated against handler schema
+
+  // Activation status
+  active            Boolean                @default(true)
+  paused            Boolean                @default(false)
+
+  // Execution order (higher = runs first)
+  executionOrder    Int                    @default(100) @map("execution_order")
+
+  // Run tracking
+  lastRunAt         DateTime?              @map("last_run_at")
+  lastRunStatus     TaskRunStatus          @default(pending) @map("last_run_status")
+  lastRunMessage    String?                @map("last_run_message")
+  lastRunDuration   Int?                   @map("last_run_duration")  // Milliseconds
+  nextRunAt         DateTime?              @map("next_run_at")
+
+  // Error tracking
+  errorCount        Int                    @default(0) @map("error_count")
+  lastErrorAt       DateTime?              @map("last_error_at")
+  lastErrorMessage  String?                @map("last_error_message")
+
+  // Attribution: Creator and updater
+  createdBy         String
+  createdById       String                 @map("created_by_id")
+  updatedBy         String?                @map("updated_by")
+  updatedById       String?                @map("updated_by_id")
+
+  // Soft delete
+  deletedAt         DateTime?              @map("deleted_at")
+  deletedBy         String?                @map("deleted_by")
+  deletedById       String?                @map("deleted_by_id")
+
+  // Timestamps
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+
+  // Relations
+  logs              ScheduledTaskLog[]
+  createdByUser     SiteUser               @relation("ScheduledTaskCreatedBy", fields: [createdById], references: [id])
+  updatedByUser     SiteUser?              @relation("ScheduledTaskUpdatedBy", fields: [updatedById], references: [id])
+  deletedByUser     SiteUser?              @relation("ScheduledTaskDeletedBy", fields: [deletedById], references: [id])
+
+  @@index([active])
+  @@index([paused])
+  @@index([nextRunAt])
+  @@index([createdAt])
+  @@index([taskKey])
+  @@index([lastRunStatus])
+  @@map("scheduled_tasks")
+}
+
+model ScheduledTaskLog {
+  id                 String              @id @default(uuid())
+
+  // Task reference
+  taskId             String              @map("task_id")
+  task               ScheduledTask       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  // Execution details
+  runStartedAt       DateTime            @map("run_started_at")
+  runFinishedAt      DateTime?           @map("run_finished_at")
+  status             TaskLogStatus       // 'success' | 'error'
+  message            String
+  errorStack         String?             @map("error_stack")
+
+  // Duration tracking
+  durationMs         Int?                @map("duration_ms")  // Milliseconds
+
+  // Execution context
+  runBySystem        Boolean             @default(false) @map("run_by_system")
+  runTriggeredBy     String?             @map("run_triggered_by")
+  runTriggeredById   String?             @map("run_triggered_by_id")
+  runTriggeredByRole String?             @map("run_triggered_by_role")  // Cached role at time of run
+
+  createdAt          DateTime            @default(now()) @map("created_at")
+
+  // Relations
+  runTriggeredByUser SiteUser?           @relation("ScheduledTaskLogTriggeredBy", fields: [runTriggeredById], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("scheduled_task_logs")
+}
+
+enum ScheduleType {
+  interval
+  cron
+  once
+}
+
+enum TaskRunStatus {
+  success
+  error
+  running
+  pending
+  skipped
+}
+
+enum TaskLogStatus {
+  success
+  error
 }
