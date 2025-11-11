@@ -46,7 +46,8 @@ model SiteUser {
   sentInvites          AdminInvite[]
   tenant               Tenant?                  @relation(fields: [tenantId], references: [id])
   signupTenant         Tenant?                  @relation("SignupTenant", fields: [signupTenantId], references: [id])
-  auditLogs            AuditLog[]
+  adminAuditLogs       AuditLog[]               @relation("AdminAuditLogs")
+  userAuditLogs        AuditLog[]               @relation("UserAuditLogs")
   sessions             Session[]
   dashboardPreferences UserDashboardPreference?
   userTenants          UserTenant[]
@@ -195,7 +196,8 @@ model AuditLog {
   resourceType String?    @map("resource_type")
   resourceId   String?    @map("resource_id")
   userRole     String?    @map("user_role")
-  admin        SiteUser?  @relation(fields: [adminId], references: [id])
+  admin        SiteUser?  @relation("AdminAuditLogs", fields: [adminId], references: [id])
+  user         SiteUser?  @relation("UserAuditLogs", fields: [userId], references: [id])
   tenant       Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([action])
@@ -208,56 +210,6 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-model UserActivityLog {
-  id           String    @id @default(uuid())
-  userId       String
-  action       String
-  resource     String?
-  resourceType String?   @map("resource_type")
-  resourceId   String?   @map("resource_id")
-  details      Json?
-  ipAddress    String?   @map("ip_address")
-  userAgent    String?   @map("user_agent")
-  email        String?
-  createdAt    DateTime  @default(now()) @map("created_at")
-
-  @@index([action])
-  @@index([createdAt])
-  @@index([userId])
-  @@index([email])
-  @@index([resourceId])
-  @@map("user_activity_logs")
-}
-
-model UserActivityArchive {
-  id           String    @id @default(uuid())
-  userId       String
-  action       String
-  resource     String?
-  resourceType String?   @map("resource_type")
-  resourceId   String?   @map("resource_id")
-  details      Json?
-  ipAddress    String?   @map("ip_address")
-  userAgent    String?   @map("user_agent")
-  email        String?
-  // Archive metadata
-  originalLogId String?   @map("original_log_id")
-  archivedAt    DateTime  @default(now()) @map("archived_at")
-  // Original creation date (preserved from log)
-  createdAt    DateTime  @default(now()) @map("created_at")
-  // Flag for anonymization (GDPR right to be forgotten)
-  isAnonymized Boolean   @default(false) @map("is_anonymized")
-  anonymizedAt DateTime? @map("anonymized_at")
-
-  @@index([userId])
-  @@index([email])
-  @@index([action])
-  @@index([createdAt])
-  @@index([archivedAt])
-  @@index([isAnonymized])
-  @@index([originalLogId])
-  @@map("user_activity_archive")
-}
 
 // ============================================================================
 // ROLE-BASED ACTIVITY LOG ARCHIVES (Stage 1: Hot → Warm Storage)
