@@ -1,10 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
+  engineType    = "binary"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ============================================================================
@@ -277,6 +280,67 @@ model AdminActivityArchive {
   @@index([userRole])
   @@index([tenantId])
   @@map("admin_activity_archive")
+}
+
+model StreamerActivityArchive {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  email         String?
+  action        String
+  resource      String?
+  resourceType  String?   @map("resource_type")
+  resourceId    String?   @map("resource_id")
+  details       Json?
+  ipAddress     String?   @map("ip_address")
+  userAgent     String?   @map("user_agent")
+  userRole      String?   @map("user_role")
+  tenantId      String?   @map("tenant_id")
+
+  // Archive metadata
+  originalLogId String?   @map("original_log_id")
+  archivedAt    DateTime  @default(now()) @map("archived_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // GDPR compliance
+  isAnonymized  Boolean   @default(false) @map("is_anonymized")
+  anonymizedAt  DateTime? @map("anonymized_at")
+
+  @@index([userId])
+  @@index([email])
+  @@index([action])
+  @@index([createdAt])
+  @@index([archivedAt])
+  @@index([isAnonymized])
+  @@index([userRole])
+  @@index([tenantId])
+  @@map("streamer_activity_archive")
+}
+
+model SystemActionArchive {
+  id            String    @id @default(uuid())
+  // System actions use "system" as userId identifier
+  userId        String    @map("user_id") // Always "system" for system-run tasks
+  action        String
+  resource      String?
+  resourceType  String?   @map("resource_type")
+  resourceId    String?   @map("resource_id")
+  details       Json?
+
+  // Archive metadata
+  originalLogId String?   @map("original_log_id")
+  archivedAt    DateTime  @default(now()) @map("archived_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // GDPR compliance
+  isAnonymized  Boolean   @default(false) @map("is_anonymized")
+  anonymizedAt  DateTime? @map("anonymized_at")
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([archivedAt])
+  @@index([isAnonymized])
+  @@map("system_action_archive")
 }
 
 model UploadLog {
