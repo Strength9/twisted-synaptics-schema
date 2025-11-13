@@ -430,6 +430,7 @@ model Tenant {
   manualOverrides            ManualOverride[]
   schedules                  StreamSchedule[]
   userTenants                UserTenant[]
+  rules                      Rule[]
 
   @@index([name])
   @@index([tenantCode])
@@ -752,6 +753,285 @@ model ScheduledTaskLog {
   @@index([status])
   @@index([createdAt])
   @@map("scheduled_task_logs")
+}
+
+// ============================================================================
+// SEASONS & GAMIFICATION
+// ============================================================================
+
+model Season {
+  id                  String    @id @default(uuid())
+  name                String
+  slug                String    @unique
+  description         String?
+  start_date          DateTime
+  end_date            DateTime
+
+  // Season status (DRAFT, ACTIVE, GRACE, ARCHIVED)
+  status              String    @default("DRAFT")
+
+  // Grace period configuration
+  grace_period_days   Int       @default(7)
+  grace_period_started_at DateTime?
+  grace_expires_at    DateTime?
+
+  // Comeback bonuses (configurable per season)
+  comeback_bonus_enabled    Boolean    @default(true)
+  comeback_bonus_24h        Int        @default(100)
+  comeback_bonus_48h        Int        @default(75)
+  comeback_bonus_72h        Int        @default(50)
+  comeback_bonus_daily      Int        @default(25)
+
+  // Archive
+  archived_at         DateTime?
+  archive_url         String?
+
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  // Relations
+  ranks               Rank[]
+  user_points         UserPoints[]
+  user_streaks        UserStreak[]
+  transactions        PointTransaction[]
+  holidays            SeasonHoliday[]
+
+  @@index([status])
+  @@index([grace_expires_at])
+  @@map("seasons")
+}
+
+model Rank {
+  id                String   @id @default(uuid())
+  season_id         String
+  rank_number       Int
+  name              String
+  min_xp            Int
+  max_xp            Int
+  xp_per_point      Decimal  @db.Decimal(10, 4)
+  coupons_per_point Decimal? @db.Decimal(10, 4)
+  daily_xp_decay    Int      @default(0)
+  badge_color       String?
+  badge_icon        String?
+  active            Boolean  @default(true)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  // Relations
+  season            Season   @relation(fields: [season_id], references: [id], onDelete: Cascade)
+
+  @@unique([season_id, rank_number])
+  @@index([season_id, min_xp, max_xp])
+  @@map("ranks")
+}
+
+model SeasonHoliday {
+  id                String      @id @default(cuid())
+  season_id         String
+  name              String
+  start_date        DateTime
+  end_date          DateTime
+  created_at        DateTime    @default(now())
+
+  season            Season      @relation(fields: [season_id], references: [id], onDelete: Cascade)
+
+  @@index([season_id])
+  @@index([start_date, end_date])
+  @@unique([season_id, name])
+  @@map("season_holidays")
+}
+
+model Mine {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  display_name    String
+  description     String?
+  active          Boolean  @default(true)
+  trigger_count   Int      @default(0)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  // Relations
+  rules           Rule[]
+
+  @@map("mines")
+}
+
+model Rule {
+  id                    String   @id @default(uuid())
+  mine_id               String
+  tenant_id             String?
+  season_id             String?
+  name                  String
+  description           String?
+
+  // Reward Configuration
+  points_reward         Int
+  xp_reward             Int      @default(0)
+
+  // Cooldown Configuration
+  cooldown_type         String                    // "none" | "fixed_interval" | "daily" | "weekly" | "once_per_season"
+  cooldown_seconds      Int      @default(0)
+
+  // Temporal Conditions
+  day_of_week_restriction  Int[]  @default([])
+  date_restriction         DateTime?
+  date_range_start         DateTime?
+  date_range_end           DateTime?
+
+  // Streak & Bonus Configuration
+  streak_eligible          Boolean  @default(false)
+  apply_streak_multiplier  Boolean  @default(true)
+  bonus_multiplier         Decimal  @db.Decimal(10, 4) @default(1.0)
+
+  // Execution
+  priority                 Int      @default(0)
+  active                   Boolean  @default(true)
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
+
+  // Relations
+  mine                  Mine     @relation(fields: [mine_id], references: [id], onDelete: Cascade)
+  tenant                Tenant?  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([mine_id, active])
+  @@index([tenant_id])
+  @@index([season_id])
+  @@index([date_restriction])
+  @@map("rules")
+}
+
+model UserPoints {
+  id                      String   @id @default(uuid())
+  user_id                 String   @map("user_id")
+  season_id               String   @map("season_id")
+
+  // Point balances
+  points_balance          Int      @default(0)    @map("points_balance")
+  total_points_earned     Int      @default(0)    @map("total_points_earned")
+  total_xp                Int      @default(0)    @map("total_xp")
+  current_rank            String?  @map("current_rank")
+
+  // Decay tracking
+  decay_window            String   @default("24h")  @map("decay_window")
+  decay_period_count      Int      @default(0)    @map("decay_period_count")
+  decay_started_at        DateTime? @map("decay_started_at")
+
+  // Activity tracking
+  last_activity           DateTime? @map("last_activity")
+  last_mine_execution_id  String?  @map("last_mine_execution_id")
+  last_mine_timestamp     DateTime? @map("last_mine_timestamp")
+
+  // Concurrency control
+  concurrent_lock_token   String?  @map("concurrent_lock_token")
+  concurrent_lock_expires DateTime? @map("concurrent_lock_expires")
+
+  created_at              DateTime @default(now()) @map("created_at")
+  updated_at              DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  season                Season     @relation(fields: [season_id], references: [id], onDelete: Cascade)
+  transactions          PointTransaction[]
+
+  @@unique([user_id, season_id])
+  @@index([season_id])
+  @@index([user_id])
+  @@index([current_rank])
+  @@map("user_points")
+}
+
+model PointTransaction {
+  id                  String   @id @default(uuid())
+  user_points_id      String   @map("user_points_id")
+  user_id             String   @map("user_id")
+  season_id           String   @map("season_id")
+
+  // Transaction type
+  transaction_type    String                       // "points_earned", "points_spent", "points_adjusted", "xp_gained", "rank_up", etc.
+  points_change       Int      @default(0)         @map("points_change")
+  xp_change           Int      @default(0)         @map("xp_change")
+
+  // References
+  rule_id             String?  @map("rule_id")
+  mine_id             String?  @map("mine_id")
+  tenant_id           String?  @map("tenant_id")
+  reference_id        String?  @map("reference_id")   // For linking to external events
+
+  // Metadata
+  notes               String?
+  metadata            Json?
+  admin_user_id       String?  @map("admin_user_id")
+
+  created_at          DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user_points        UserPoints  @relation(fields: [user_points_id], references: [id], onDelete: Cascade)
+  season             Season      @relation(fields: [season_id], references: [id], onDelete: Cascade)
+
+  @@index([user_points_id])
+  @@index([user_id])
+  @@index([season_id])
+  @@index([transaction_type])
+  @@index([created_at])
+  @@index([mine_id])
+  @@map("points_transactions")
+}
+
+model UserStreak {
+  id                String   @id @default(uuid())
+  user_id           String   @map("user_id")
+  season_id         String   @map("season_id")
+  tenant_id         String?  @map("tenant_id")
+  mine_id           String   @map("mine_id")
+
+  // Streak data
+  current_streak    Int      @default(0)  @map("current_streak")
+  longest_streak    Int      @default(0)  @map("longest_streak")
+
+  // Activity tracking
+  last_activity     DateTime? @map("last_activity")
+  bonus_multiplier  Decimal   @db.Decimal(10, 4) @default(1.0) @map("bonus_multiplier")
+
+  created_at        DateTime @default(now()) @map("created_at")
+  updated_at        DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  season            Season   @relation(fields: [season_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, season_id, mine_id])
+  @@index([user_id])
+  @@index([season_id])
+  @@index([mine_id])
+  @@map("user_streaks")
+}
+
+// ============================================================================
+// MINE TRIGGER SECURITY
+// ============================================================================
+
+model MineTriggeredToken {
+  id                String    @id @default(uuid())
+  token             String    @unique
+  user_id           String    @map("user_id")
+  mine_id           String    @map("mine_id")
+  tenant_id         String    @map("tenant_id")
+
+  // One-time use tracking
+  used              Boolean   @default(false)
+  used_at           DateTime? @map("used_at")
+
+  // Token expiration
+  expires_at        DateTime  @map("expires_at")
+
+  // Metadata
+  created_at        DateTime  @default(now()) @map("created_at")
+
+  @@index([token])
+  @@index([user_id])
+  @@index([mine_id])
+  @@index([tenant_id])
+  @@index([expires_at])
+  @@map("mine_triggered_tokens")
 }
 
 enum ScheduleType {
